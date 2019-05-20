@@ -1,0 +1,6 @@
+{
+    "terminal.integrated.env.linux": {
+        "PATH": "/home/odoo18NOV/.platformio/penv/bin:/home/odoo18NOV/.platformio/penv:/home/odoo18NOV/bin:/home/odoo18NOV/.local/bin:/home/odoo18NOV/bin:/home/odoo18NOV/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin",
+        "PLATFORMIO_CALLER": "vscode"
+    }
+}
