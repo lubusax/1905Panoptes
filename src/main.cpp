@@ -6,11 +6,11 @@
 
 #include "individual_header.h"
 
-/************************* DHT Setup *********************************/
-
 #define DHTPIN1 5 // Digital pin connected to the DHT sensor
 #define DHTPIN2 14 // Digital pin connected to the DHT sensor
 #define DHTTYPE DHT22   // DHT 22  (AM2302), AM2321
+#define SWITCHPIN 4 // Digital input from switch (normally open)
+
 DHT dht1(DHTPIN1, DHTTYPE);
 DHT dht2(DHTPIN2, DHTTYPE);
 
@@ -24,9 +24,76 @@ Adafruit_MQTT_Publish temp2 = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/
 
 
 void MQTT_connect();
-
+void SerialPrint_Welcome();
+void ToDo_when_switch_ON();
+void SerialPrint_Measurement_DHT1(float temp1, float hum1);
+void SerialPrint_Measurement_DHT2(float temp2, float hum2);
 void MQTT_publish1(float value1, float value2);
 void MQTT_publish2(float value1, float value2);
+void WiFi_connect();
+void SerialPrint_going_to_DeepSleep();
+
+void setup() {
+  Serial.begin(9600);
+  delay(1);
+}
+
+void loop() {
+  
+  SerialPrint_Welcome();
+  
+  ToDo_when_switch_ON();
+
+  WiFi_connect();
+
+  dht1.begin();
+  float hum1 = dht1.readHumidity();
+  float temp1 = dht1.readTemperature();
+  SerialPrint_Measurement_DHT1(temp1,hum1);
+
+  dht2.begin();
+  float hum2 = dht2.readHumidity();
+  float temp2 = dht2.readTemperature();
+  SerialPrint_Measurement_DHT2(temp2,hum2);
+  
+  MQTT_connect();
+
+  MQTT_publish1(temp1, hum1);
+
+  MQTT_publish2(temp2, hum2);
+    
+  mqtt.disconnect();
+
+  WiFi.mode(WIFI_OFF);
+
+  WiFi.forceSleepBegin();  // send wifi to sleep to reduce power consumption
+  
+  delay(1); // in ms
+
+  SerialPrint_going_to_DeepSleep();
+  
+  ESP.deepSleep(360000000); // in microseconds
+  
+  yield(); // pass control back to background processes to prepate sleep
+}
+
+void SerialPrint_Welcome() {
+  Serial.println();
+  Serial.println();
+  Serial.println("==============================================");
+  Serial.println("//////////////////////////////////////////////");
+  Serial.println();
+  Serial.println(F("========  Measurement with DeepSleep ========="));
+}
+
+void ToDo_when_switch_ON() {
+  pinMode(SWITCHPIN, INPUT_PULLUP);
+
+  while (!(digitalRead(SWITCHPIN))) {
+      Serial.println("LOOP LOOP LOOP");
+      delay(1500);
+  }
+}
 
 void WiFi_connect() {
   // Connect to WiFi access point.
@@ -54,90 +121,25 @@ void WiFi_connect() {
   Serial.println(WiFi.localIP());
 }
 
-void setup() {
-  
-}
-
-void loop() {
-  Serial.begin(9600);
-  delay(1);
-  
-  Serial.println();
-  Serial.println();
-  Serial.println("==============================================");
-  Serial.println("//////////////////////////////////////////////");
-  Serial.println();
-  Serial.println(F("=============  Deepsleep DEMO ================"));
-
-  WiFi_connect();
-
-  dht1.begin();
-  float hum1 = dht1.readHumidity();
-  float temp1 = dht1.readTemperature();
+void SerialPrint_Measurement_DHT1(float temp1, float hum1) {
   Serial.print(F("Humidity 1: "));
   Serial.print(hum1);
   Serial.print(F("%  Temperature 1: "));
   Serial.print(temp1);
   Serial.println(F("°C "));
+}
 
-  dht2.begin();
-  float hum2 = dht2.readHumidity();
-  float temp2 = dht2.readTemperature();
-
+void SerialPrint_Measurement_DHT2(float temp2, float hum2) {
   Serial.print(F("Humidity 2: "));
   Serial.print(hum2);
   Serial.print(F("%  Temperature 2: "));
   Serial.print(temp2);
   Serial.println(F("°C "));
-
-  MQTT_connect();
-
-  // Check if the read not failed and then publish
-  if (!(isnan(hum1) || isnan(temp1))) {
-       MQTT_publish1(temp1, hum1);
-
-       Serial.print(F("Humidity 1: "));
-       Serial.print(hum1);
-       Serial.print(F("%  Temperature 1: "));
-       Serial.print(temp1);
-       Serial.println(F("°C "));
-    }
-
-  if (!(isnan(hum2) || isnan(temp2))) {
-       MQTT_publish2(temp2, hum2);
-
-       Serial.print(F("Humidity 2: "));
-       Serial.print(hum2);
-       Serial.print(F("%  Temperature 2: "));
-       Serial.print(temp2);
-       Serial.println(F("°C "));
-    }  
-
-  mqtt.disconnect();
-
-
-  WiFi.mode(WIFI_OFF);
-
-  WiFi.forceSleepBegin();  // send wifi to sleep to reduce power consumption
-  
-
-  delay(1); // in ms
-
-  Serial.println("Going into deep sleep for 6 minutes");
-  Serial.println();
-  Serial.println();
-  Serial.println("************************************************");
-  Serial.println();
-
-  ESP.deepSleep(360000000); // in microseconds
-  
-  yield(); // pass control back to background processes to prepate sleep
 }
 
-
-// Function to connect and reconnect as necessary to the MQTT server.
-// Should be called in the loop function and it will take care if connecting.
 void MQTT_connect() {
+  // Function to connect and reconnect as necessary to the MQTT server.
+  // Should be called in the loop function and it will take care if connecting.
   int8_t ret;
 
   // Stop if already connected.
@@ -163,27 +165,55 @@ void MQTT_connect() {
 }
 
 void MQTT_publish1(float value1,float value2){
-  if (! temp1.publish(value1)) {
-    Serial.println(F("Failed to publish T1"));
-  } else {
-    Serial.println(F("T1 published!"));
-  }
-  if (! hum1.publish(value2)) {
-    Serial.println(F("Failed to publish HR1"));
-  } else {
-    Serial.println(F("HR1 published!"));
+  if (!(isnan(value2) || isnan(value1))) {
+
+      if (! temp1.publish(value1)) {
+        Serial.println(F("Failed to publish T1"));
+      } else {
+        Serial.println(F("T1 published!"));
+      }
+
+      if (! hum1.publish(value2)) {
+        Serial.println(F("Failed to publish HR1"));
+      } else {
+        Serial.println(F("HR1 published!"));
+      }
+
+       Serial.print(F("Humidity 1: "));
+       Serial.print(value2);
+       Serial.print(F("%  Temperature 1: "));
+       Serial.print(value1);
+       Serial.println(F("°C "));
   }
 }
 
 void MQTT_publish2(float value1,float value2){
-   if (! temp2.publish(value1)) {
-    Serial.println(F("Failed to publish T2"));
-  } else {
-    Serial.println(F("T2 published!"));
-  }
-  if (! hum2.publish(value2)) {
-    Serial.println(F("Failed to publish HR2"));
-  } else {
-    Serial.println(F("HR2 published!"));
-  }
+  if (!(isnan(value2) || isnan(value1))) {
+
+      if (! temp2.publish(value1)) {
+        Serial.println(F("Failed to publish T2"));
+      } else {
+        Serial.println(F("T2 published!"));
+      }
+
+      if (! hum2.publish(value2)) {
+        Serial.println(F("Failed to publish HR2"));
+      } else {
+        Serial.println(F("HR2 published!"));
+      }
+
+       Serial.print(F("Humidity 2: "));
+       Serial.print(value2);
+       Serial.print(F("%  Temperature 2: "));
+       Serial.print(value1);
+       Serial.println(F("°C "));
+    }  
+}
+
+void SerialPrint_going_to_DeepSleep() {
+  Serial.println("Going into deep sleep for 6 minutes");
+  Serial.println();
+  Serial.println();
+  Serial.println("************************************************");
+  Serial.println();
 }
