@@ -2,8 +2,8 @@
 /************************* WiFi Access Point *********************************/
 
 
-#define WIFI_SSID       "Tech_D0047892"
-#define WIFI_PASS       "UVKZDTEJ"
+//#define WIFI_SSID       "Tech_D0047892"
+//#define WIFI_PASS       "UVKZDTEJ"
 
 
 /*#define WIFI_SSID       "TP-Link_FCCC"

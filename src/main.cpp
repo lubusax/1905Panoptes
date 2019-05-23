@@ -1,8 +1,21 @@
+#include <FS.h>
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include "Adafruit_MQTT.h"
 #include "Adafruit_MQTT_Client.h"
 #include "DHT.h" //DHT22
+
+#include <DNSServer.h>
+#include <ESP8266WebServer.h>
+#include <WiFiManager.h>          //https://github.com/tzapu/WiFiManager
+
+#include <ArduinoJson.h>          //https://github.com/bblanchon/ArduinoJson
+
+//define your default values here, if there are different values in config.json, they are overwritten.
+char mqtt_server[40];
+char mqtt_port[6] = "8080";
+char blynk_token[34] = "YOUR_BLYNK_TOKEN";
+bool shouldSaveConfig = false; //flag for saving data
 
 #include "individual_header.h"
 
@@ -25,7 +38,7 @@ Adafruit_MQTT_Publish temp2 = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/
 
 void MQTT_connect();
 void SerialPrint_Welcome();
-void ToDo_when_switch_ON();
+bool Is_switch_ON();
 void SerialPrint_Measurement_DHT1(float temp1, float hum1);
 void SerialPrint_Measurement_DHT2(float temp2, float hum2);
 void MQTT_publish1(float value1, float value2);
@@ -33,36 +46,173 @@ void MQTT_publish2(float value1, float value2);
 void WiFi_connect();
 void SerialPrint_going_to_DeepSleep();
 
+void saveConfigCallback () {  //callback notifying us of the need to save config
+  Serial.println("Should save config");
+  shouldSaveConfig = true;
+}
+
+void configModeCallback (WiFiManager *myWiFiManager) {
+  Serial.println("Entered config mode");
+  Serial.println(WiFi.softAPIP());
+  Serial.println(myWiFiManager->getConfigPortalSSID());
+}
+
 void setup() {
-  Serial.begin(9600);
-  delay(1);
+ 
 }
 
 void loop() {
-  
-  SerialPrint_Welcome();
-  
-  ToDo_when_switch_ON();
 
-  WiFi_connect();
+  Serial.begin(9600);
+  if (WiFi.SSID()) {
+      Serial.println("Using last saved values, should be faster");
+      //trying to fix connection in progress hanging
+      ETS_UART_INTR_DISABLE();
+      wifi_station_disconnect();
+      ETS_UART_INTR_ENABLE();
 
-  dht1.begin();
-  float hum1 = dht1.readHumidity();
-  float temp1 = dht1.readTemperature();
-  SerialPrint_Measurement_DHT1(temp1,hum1);
+      WiFi.begin();
+  } else {
+      Serial.println("No saved credentials");
+    //read configuration from FS json
+    Serial.println("mounting FS...");
 
-  dht2.begin();
-  float hum2 = dht2.readHumidity();
-  float temp2 = dht2.readTemperature();
-  SerialPrint_Measurement_DHT2(temp2,hum2);
-  
-  MQTT_connect();
+    if (SPIFFS.begin()) {
+      Serial.println("mounted file system");
+      if (SPIFFS.exists("/config.json")) {
+        //file exists, reading and loading
+        Serial.println("reading config file");
+        File configFile = SPIFFS.open("/config.json", "r");
+        if (configFile) {
+          Serial.println("opened config file");
+          size_t size = configFile.size();
+          // Allocate a buffer to store contents of the file.
+          std::unique_ptr<char[]> buf(new char[size]);
 
-  MQTT_publish1(temp1, hum1);
+          configFile.readBytes(buf.get(), size);
+          DynamicJsonBuffer jsonBuffer;
+          JsonObject& json = jsonBuffer.parseObject(buf.get());
+          json.printTo(Serial);
+          if (json.success()) {
+            Serial.println("\nparsed json");
 
-  MQTT_publish2(temp2, hum2);
+            strcpy(mqtt_server, json["mqtt_server"]);
+            strcpy(mqtt_port, json["mqtt_port"]);
+            strcpy(blynk_token, json["blynk_token"]);
+
+          } else {
+            Serial.println("failed to load json config");
+          }
+          configFile.close();
+        }
+      }
+    } else {
+      Serial.println("failed to mount FS");
+    }
+  //end read
+
+
+    // The extra parameters to be configured (can be either global or just in the setup)
+    // After connecting, parameter.getValue() will get you the configured value
+    // id/name placeholder/prompt default length
+    WiFiManagerParameter custom_mqtt_server("server", "mqtt server", mqtt_server, 40);
+    WiFiManagerParameter custom_mqtt_port("port", "mqtt port", mqtt_port, 6);
+    WiFiManagerParameter custom_blynk_token("blynk", "blynk token", blynk_token, 32);
+
+    //WiFiManager
+    //Local intialization. Once its business is done, there is no need to keep it around
+    WiFiManager wifiManager;
+
+    //set config save notify callback
+    wifiManager.setSaveConfigCallback(saveConfigCallback);
+    wifiManager.setAPCallback(configModeCallback);
+
+    //set static ip
+    //wifiManager.setSTAStaticIPConfig(IPAddress(10,0,1,99), IPAddress(10,0,1,1), IPAddress(255,255,255,0));
     
-  mqtt.disconnect();
+    //add all your parameters here
+    wifiManager.addParameter(&custom_mqtt_server);
+    wifiManager.addParameter(&custom_mqtt_port);
+    wifiManager.addParameter(&custom_blynk_token);
+
+    //WiFi.disconnect(); //erases stored SSID and Password
+
+    //sets timeout until configuration portal gets turned off
+    //useful to make it all retry or go to sleep
+    //in seconds
+    if (Is_switch_ON()) {
+      wifiManager.setTimeout(1); // if switch is On, then no time for WiFiManager AP portal
+    }
+
+  // LED On
+
+    //fetches ssid and pass and tries to connect
+    //if it does not connect it starts an access point with the specified name
+    //here  "AutoConnectAP"
+    //and goes into a blocking loop awaiting configuration
+    if (!wifiManager.autoConnect("AutoConnectAP", "password")) {
+      Serial.println("failed to connect and hit timeout");
+    }
+
+    //LED off
+    //read updated parameters
+    strcpy(mqtt_server, custom_mqtt_server.getValue());
+    strcpy(mqtt_port, custom_mqtt_port.getValue());
+    strcpy(blynk_token, custom_blynk_token.getValue());
+  
+  }
+
+  if (WiFi.status() == WL_CONNECTED)   {
+    //if you get here you have connected to the WiFi
+    Serial.println("connected...yeey :)");
+
+    //save the custom parameters to FS
+    if (shouldSaveConfig) {
+      Serial.println("saving config");
+      DynamicJsonBuffer jsonBuffer;
+      JsonObject& json = jsonBuffer.createObject();
+      json["mqtt_server"] = mqtt_server;
+      json["mqtt_port"] = mqtt_port;
+      json["blynk_token"] = blynk_token;
+
+      File configFile = SPIFFS.open("/config.json", "w");
+      if (!configFile) {
+        Serial.println("failed to open config file for writing");
+      }
+
+      json.printTo(Serial);
+      json.printTo(configFile);
+      configFile.close();
+      //end save
+    }
+
+    Serial.println("local ip");
+    Serial.println(WiFi.localIP());
+    SerialPrint_Welcome();
+    
+    //ToDo_when_switch_ON();
+
+    //WiFi_connect();
+
+    dht1.begin();
+    float hum1 = dht1.readHumidity();
+    float temp1 = dht1.readTemperature();
+    SerialPrint_Measurement_DHT1(temp1,hum1);
+
+    dht2.begin();
+    float hum2 = dht2.readHumidity();
+    float temp2 = dht2.readTemperature();
+    SerialPrint_Measurement_DHT2(temp2,hum2);
+    
+    MQTT_connect();
+
+    MQTT_publish1(temp1, hum1);
+
+    MQTT_publish2(temp2, hum2);
+      
+    mqtt.disconnect();
+
+  }
 
   WiFi.mode(WIFI_OFF);
 
@@ -86,16 +236,14 @@ void SerialPrint_Welcome() {
   Serial.println(F("========  Measurement with DeepSleep ========="));
 }
 
-void ToDo_when_switch_ON() {
+bool Is_switch_ON() {
   pinMode(SWITCHPIN, INPUT_PULLUP);
-
-  while (!(digitalRead(SWITCHPIN))) {
-      Serial.println("LOOP LOOP LOOP");
-      delay(1500);
-  }
+  bool buttonState = digitalRead(SWITCHPIN);
+  Serial.println(buttonState ? "HIGH" : "LOW");
+  return digitalRead(SWITCHPIN);
 }
 
-void WiFi_connect() {
+void WiFi_connect() { /*
   // Connect to WiFi access point.
   Serial.println();
   Serial.println();
@@ -118,8 +266,8 @@ void WiFi_connect() {
   Serial.println("");
   Serial.print("WiFi connected - ");
   Serial.print("IP address: ");
-  Serial.println(WiFi.localIP());
-}
+  Serial.println(WiFi.localIP()); */
+} 
 
 void SerialPrint_Measurement_DHT1(float temp1, float hum1) {
   Serial.print(F("Humidity 1: "));
