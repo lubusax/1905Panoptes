@@ -17,7 +17,6 @@ char mqtt_port[6] = "8080";
 char blynk_token[34] = "YOUR_BLYNK_TOKEN";
 char deepsleep_duration[3]; //in minutes
 bool shouldSaveConfig = false; //flag for saving data
-char autocon[5]="fals";
 
 #include "individual_header.h"
 
@@ -67,40 +66,6 @@ void loop() {
 
   Serial.begin(9600);
 
-  /*if (WiFi.getAutoConnect()) {
-    uint8_t retries = 6;
-    WiFi.reconnect();
-    while ((WiFi.status() != WL_CONNECTED) && (retries != 0));
-    {
-    retries--;
-    delay(500);
-    Serial.print(".");
-    }
-  }*/
-
-
-
-  /*WiFi.reconnect();
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    delay(500);
-    Serial.print(".");
-  }*/
-
-  /*if (WiFi.SSID()) {
-    Serial.println("Using last saved values, should be faster");
-    //trying to fix connection in progress hanging
-    //ETS_UART_INTR_DISABLE();
-    //wifi_station_disconnect();
-    //ETS_UART_INTR_ENABLE();
-    WiFi.begin();
-    while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-    }
-  } else {
-    Serial.println("No saved credentials");*/
-  //read configuration from FS json
 
 
   Serial.println("mounting FS...");
@@ -141,6 +106,7 @@ void loop() {
   //end read
 
 
+  
   // The extra parameters to be configured (can be either global or just in the setup)
   // After connecting, parameter.getValue() will get you the configured value
   // id/name placeholder/prompt default length
@@ -170,7 +136,14 @@ void loop() {
     Serial.println("disconnecting");
 
     WiFi.disconnect(true); //erases stored SSID and Password
+    // LED ON
     wifiManager.startConfigPortal();
+
+    //read updated parameters
+    strcpy(mqtt_server, custom_mqtt_server.getValue());
+    strcpy(mqtt_port, custom_mqtt_port.getValue());
+    strcpy(blynk_token, custom_blynk_token.getValue());
+    strcpy(deepsleep_duration, custom_ds_duration.getValue()); 
   }
 
   //sets timeout until configuration portal gets turned off
@@ -180,27 +153,20 @@ void loop() {
     wifiManager.setTimeout(1); // if switch is On, then no time for WiFiManager AP portal
   }
 
-  // LED On
 
-    //fetches ssid and pass and tries to connect
-    //if it does not connect it starts an access point with the specified name
-    //here  "AutoConnectAP"
-    //and goes into a blocking loop awaiting configuration
-    if (!wifiManager.autoConnect("AutoConnectAP", "password")) {
-      Serial.println("failed to connect and hit timeout");
-    }
+  
 
-    //LED off
-    //read updated parameters
-  strcpy(mqtt_server, custom_mqtt_server.getValue());
-  strcpy(mqtt_port, custom_mqtt_port.getValue());
-  strcpy(blynk_token, custom_blynk_token.getValue());
-  strcpy(deepsleep_duration, custom_ds_duration.getValue());             
-  
-  
+  //fetches ssid and pass and tries to connect
+  //if it does not connect it starts an access point with the specified name
+  //here  "AutoConnectAP"
+  //and goes into a blocking loop awaiting configuration
+  if (!wifiManager.autoConnect("AutoConnectAP", "password")) {
+    Serial.println("failed to connect and hit timeout");
+  }
 
   if (WiFi.status() == WL_CONNECTED)   {
     //if you get here you have connected to the WiFi
+    // LED OFF
     Serial.println("connected...yeey :)");
 
     //save the custom parameters to FS
@@ -227,10 +193,6 @@ void loop() {
     Serial.println("local ip");
     Serial.println(WiFi.localIP());
     SerialPrint_Welcome();
-    
-    //ToDo_when_switch_ON();
-
-    //WiFi_connect();
 
     dht1.begin();
     float hum1 = dht1.readHumidity();
@@ -282,32 +244,6 @@ bool Is_switch_ON() {
   Serial.println(buttonState ? "HIGH" : "LOW");
   return digitalRead(SWITCHPIN);
 }
-
-void WiFi_connect() { /*
-  // Connect to WiFi access point.
-  Serial.println();
-  Serial.println();
-  Serial.print("Connecting to ");
-  Serial.println(WIFI_SSID);
-
-  // WiFi fix: https://github.com/esp8266/Arduino/issues/2186
-  WiFi.persistent(false);
-
-  WiFi.forceSleepWake();
-  
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-
-  Serial.println("");
-  Serial.print("WiFi connected - ");
-  Serial.print("IP address: ");
-  Serial.println(WiFi.localIP()); */
-} 
 
 void SerialPrint_Measurement_DHT1(float temp1, float hum1) {
   Serial.print(F("Humidity 1: "));
