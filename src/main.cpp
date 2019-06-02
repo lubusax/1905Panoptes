@@ -24,9 +24,10 @@ bool shouldSaveConfig = false; //flag for saving data
 #define DHTPIN2 14 // Digital pin connected to the DHT sensor
 #define DHTTYPE DHT22   // DHT 22  (AM2302), AM2321
 #define SWITCHPIN 4 // Digital input from switch (normally open)
+#define LEDSERVER 12 // LED on = server for configuration is up
 
 DHT dht1(DHTPIN1, DHTTYPE);
-DHT dht2(DHTPIN2, DHTTYPE);
+DHT dht2(DHTPIN2, DHTTYPE); 
 
 WiFiClient client;
 
@@ -66,8 +67,6 @@ void loop() {
 
   Serial.begin(9600);
 
-
-
   Serial.println("mounting FS...");
 
   if (SPIFFS.begin()) {
@@ -89,9 +88,9 @@ void loop() {
         if (json.success()) {
           Serial.println("\nparsed json");
 
-          strcpy(mqtt_server, json["mqtt_server"]);
+          /*strcpy(mqtt_server, json["mqtt_server"]);
           strcpy(mqtt_port, json["mqtt_port"]);
-          strcpy(blynk_token, json["blynk_token"]);
+          strcpy(blynk_token, json["blynk_token"]);*/
           strcpy(deepsleep_duration, json["deepsleep_duration"]);
 
         } else {
@@ -110,9 +109,9 @@ void loop() {
   // The extra parameters to be configured (can be either global or just in the setup)
   // After connecting, parameter.getValue() will get you the configured value
   // id/name placeholder/prompt default length
-  WiFiManagerParameter custom_mqtt_server("server", "mqtt server", mqtt_server, 40);
+  /*WiFiManagerParameter custom_mqtt_server("server", "mqtt server", mqtt_server, 40);
   WiFiManagerParameter custom_mqtt_port("port", "mqtt port", mqtt_port, 6);
-  WiFiManagerParameter custom_blynk_token("blynk", "blynk token", blynk_token, 32);
+  WiFiManagerParameter custom_blynk_token("blynk", "blynk token", blynk_token, 32);*/
   WiFiManagerParameter custom_ds_duration("duration", "deep sleep duration (min)", deepsleep_duration, 3);
 
   //WiFiManager
@@ -127,22 +126,25 @@ void loop() {
   //wifiManager.setSTAStaticIPConfig(IPAddress(10,0,1,99), IPAddress(10,0,1,1), IPAddress(255,255,255,0));
   
   //add all your parameters here
-  wifiManager.addParameter(&custom_mqtt_server);
+  /*wifiManager.addParameter(&custom_mqtt_server);
   wifiManager.addParameter(&custom_mqtt_port);
-  wifiManager.addParameter(&custom_blynk_token);
+  wifiManager.addParameter(&custom_blynk_token);*/
   wifiManager.addParameter(&custom_ds_duration);
   
   if (!Is_switch_ON()) {
     Serial.println("disconnecting");
 
     WiFi.disconnect(true); //erases stored SSID and Password
-    // LED ON
+
+    pinMode(LEDSERVER, OUTPUT);
+    digitalWrite(LEDSERVER, HIGH); // led on indicates server for configuration is up
+
     wifiManager.startConfigPortal();
 
     //read updated parameters
-    strcpy(mqtt_server, custom_mqtt_server.getValue());
+    /*strcpy(mqtt_server, custom_mqtt_server.getValue());
     strcpy(mqtt_port, custom_mqtt_port.getValue());
-    strcpy(blynk_token, custom_blynk_token.getValue());
+    strcpy(blynk_token, custom_blynk_token.getValue());*/
     strcpy(deepsleep_duration, custom_ds_duration.getValue()); 
   }
 
@@ -165,8 +167,16 @@ void loop() {
   }
 
   if (WiFi.status() == WL_CONNECTED)   {
+
     //if you get here you have connected to the WiFi
-    // LED OFF
+    pinMode(LEDSERVER, OUTPUT);
+    while (!Is_switch_ON()) {
+      digitalWrite(LEDSERVER, HIGH); // blink until switch is pressed
+      delay(200); // in ms
+      digitalWrite(LEDSERVER, LOW); // blink until switch is pressed
+      delay(200); // in ms
+    }
+
     Serial.println("connected...yeey :)");
 
     //save the custom parameters to FS
@@ -174,9 +184,9 @@ void loop() {
       Serial.println("saving config");
       DynamicJsonBuffer jsonBuffer;
       JsonObject& json = jsonBuffer.createObject();
-      json["mqtt_server"] = mqtt_server;
+      /*json["mqtt_server"] = mqtt_server;
       json["mqtt_port"] = mqtt_port;
-      json["blynk_token"] = blynk_token;
+      json["blynk_token"] = blynk_token;*/
       json["deepsleep_duration"] = deepsleep_duration;
 
       File configFile = SPIFFS.open("/config.json", "w");
@@ -199,16 +209,16 @@ void loop() {
     float temp1 = dht1.readTemperature();
     SerialPrint_Measurement_DHT1(temp1,hum1);
 
-    dht2.begin();
+    /*dht2.begin();
     float hum2 = dht2.readHumidity();
     float temp2 = dht2.readTemperature();
-    SerialPrint_Measurement_DHT2(temp2,hum2);
+    SerialPrint_Measurement_DHT2(temp2,hum2);*/
     
     MQTT_connect();
 
     MQTT_publish1(temp1, hum1);
 
-    MQTT_publish2(temp2, hum2);
+    //MQTT_publish2(temp2, hum2);
       
     mqtt.disconnect();
 
